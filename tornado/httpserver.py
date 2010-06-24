@@ -150,7 +150,7 @@ class HTTPServer(object):
         self._socket.bind((address, port))
         self._socket.listen(128)
 
-    def start(self, num_processes=None):
+    def start(self, num_processes=None, wait=True, fork_callback=None):
         """Starts this server in the IOLoop.
 
         By default, we detect the number of cores available on this machine
@@ -181,19 +181,22 @@ class HTTPServer(object):
         if num_processes > 1:
             logging.info("Pre-forking %d server processes", num_processes)
             for i in range(num_processes):
-                if os.fork() == 0:
+                pid = fork_callback(i) if fork_callback else os.fork()
+                if pid == 0:
                     self.io_loop = ioloop.IOLoop.instance()
                     self.io_loop.add_handler(
                         self._socket.fileno(), self._handle_events,
                         ioloop.IOLoop.READ)
-                    return
-            os.waitpid(-1, 0)
+                    return False
+            if wait:
+                os.waitpid(-1, 0)
         else:
             if not self.io_loop:
                 self.io_loop = ioloop.IOLoop.instance()
             self.io_loop.add_handler(self._socket.fileno(),
                                      self._handle_events,
                                      ioloop.IOLoop.READ)
+        return True
 
     def stop(self):
       self.io_loop.remove_handler(self._socket.fileno())
