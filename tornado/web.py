@@ -56,9 +56,11 @@ import gzip
 import hashlib
 import hmac
 import httplib
+import itertools
 import locale
 import logging
 import mimetypes
+import multiprocessing
 import os.path
 import re
 import stat
@@ -1093,6 +1095,75 @@ class Application(object):
             return self.named_handlers[name].reverse(*args)
         raise KeyError("%s not found in named urls" % name)
 
+
+class MultiprocessApplication(Application):
+    """
+    A subclass of Application that adds support for communication between
+    processes serving requests and the parent process.
+    
+    To use this class for something useful you should subclass it and define
+    at least the main_on_message method. This will be called when a child
+    process sends a message using application.communicate.
+    
+    Start like this:
+
+        http_server = tornado.httpserver.HTTPServer(application)
+        http_server.bind(8080)
+        is_main = http_server.start(3, wait=False,
+                                    fork_callback=application.fork)
+        ioloop = tornado.ioloop.IOLoop.instance()
+        application.setup(ioloop, is_main)
+        ioloop.start()
+    """
+
+    def communicate(self, msg, callback=None):
+        """Send a message to the main process, with optional callback
+        to recieve a response"""
+        cb_id = None
+        if callback:
+            cb_id = self._callback_counter.next()
+            self._callbacks[cb_id] = callback
+        to_send = (self._pid, cb_id, msg)
+        self._pipes[self._pid_main][1].send(to_send)
+
+    def main_on_message(self, msg, callback):
+        """Do something useful with message from child process"""
+        raise NotImplementedError()
+
+    def fork(self, fork_num):
+        if fork_num == 0:
+            self._pid_main = self._pid = os.getpid()
+            self._pipes = {self._pid: multiprocessing.Pipe()}
+        conns = multiprocessing.Pipe()
+        pid = os.fork()
+        if pid == 0:
+            self._pid = os.getpid()
+        self._pipes[pid or self._pid] = conns
+        return pid
+
+    def setup(self, ioloop, is_main_process):
+        self.is_main_process = is_main_process
+        self.ioloop = ioloop
+        cb = (self._main_handle_event if is_main_process else
+              self._child_handle_event)
+        ioloop.add_handler(self._pipes[self._pid][0].fileno(),
+                           cb, ioloop.READ)
+        if not is_main_process:
+            self._callbacks = {}
+            self._callback_counter = itertools.cycle(xrange(sys.maxint))
+    
+    def _main_handle_event(self, *args):
+        child_pid, cb_id, msg = self._pipes[self._pid][0].recv()
+        respond_cb = lambda msg: None
+        if cb_id != None:
+            pipe = self._pipes[child_pid][1]
+            respond_cb = lambda out: pipe.send((cb_id, out))
+        self.main_on_message(msg, respond_cb)
+
+    def _child_handle_event(self, *args):
+        cb_id, msg = self._pipes[self._pid][0].recv()
+        self._callbacks.pop(cb_id)(msg)
+        
 
 class HTTPError(Exception):
     """An exception that will turn into an HTTP error response."""
