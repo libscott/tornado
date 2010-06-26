@@ -48,6 +48,7 @@ import binascii
 import calendar
 import Cookie
 import cStringIO
+import ctypes
 import datetime
 import email.utils
 import escape
@@ -56,7 +57,6 @@ import gzip
 import hashlib
 import hmac
 import httplib
-import itertools
 import locale
 import logging
 import mimetypes
@@ -1121,7 +1121,8 @@ class MultiprocessApplication(Application):
         to recieve a response"""
         cb_id = None
         if callback:
-            cb_id = self._callback_counter.next()
+            cb_id = self._callback_counter.value
+            self._callback_counter.value += 1
             self._callbacks[cb_id] = callback
         to_send = (self._pid, cb_id, msg)
         self._pipes[self._pid_main][1].send(to_send)
@@ -1150,14 +1151,14 @@ class MultiprocessApplication(Application):
                            cb, ioloop.READ)
         if not is_main_process:
             self._callbacks = {}
-            self._callback_counter = itertools.cycle(xrange(sys.maxint))
+            self._callback_counter = ctypes.c_int(0)
     
     def _main_handle_event(self, *args):
         child_pid, cb_id, msg = self._pipes[self._pid][0].recv()
         respond_cb = lambda msg: None
         if cb_id != None:
             pipe = self._pipes[child_pid][1]
-            respond_cb = lambda out: pipe.send((cb_id, out))
+            respond_cb = lambda msg: pipe.send((cb_id, msg))
         self.main_on_message(msg, respond_cb)
 
     def _child_handle_event(self, *args):
