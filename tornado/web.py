@@ -1128,10 +1128,13 @@ class MultiprocessApplication(Application):
         self._pipes[self._pid_main][1].send(to_send)
 
     def main_on_message(self, msg, callback):
-        """Do something useful with message from child process"""
+        """Do something useful with message from child process and call
+        callback with result"""
         raise NotImplementedError()
 
     def fork(self, fork_num):
+        """Callback to pass into HTTPServer.start. Creates pipes shared
+        between main and child processes"""
         if fork_num == 0:
             self._pid_main = self._pid = os.getpid()
             self._pipes = {self._pid: multiprocessing.Pipe()}
@@ -1143,6 +1146,7 @@ class MultiprocessApplication(Application):
         return pid
 
     def setup(self, ioloop, is_main_process):
+        """Set up callbacks, call before starting ioloop."""
         self.is_main_process = is_main_process
         self.ioloop = ioloop
         cb = (self._main_handle_event if is_main_process else
@@ -1160,6 +1164,7 @@ class MultiprocessApplication(Application):
             pipe = self._pipes[child_pid][1]
             respond_cb = lambda msg: pipe.send((cb_id, msg))
         self.main_on_message(msg, respond_cb)
+        
 
     def _child_handle_event(self, *args):
         cb_id, msg = self._pipes[self._pid][0].recv()
