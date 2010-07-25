@@ -276,7 +276,8 @@ class HTTPConnection(object):
     def _on_headers(self, data):
         eol = data.find("\r\n")
         start_line = data[:eol]
-        method, uri, version = start_line.split(" ")
+        method, rest = start_line.split(" ", 1)
+        uri, version = rest.rsplit(" ", 1)
         if not version.startswith("HTTP/"):
             raise Exception("Malformed HTTP version in HTTP Request-Line")
         headers = HTTPHeaders.parse(data[eol:])
