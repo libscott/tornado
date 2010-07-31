@@ -238,6 +238,7 @@ class HTTPConnection(object):
         self.xheaders = xheaders
         self._request = None
         self._request_finished = False
+        self._on_headers = self._wrap_parse_error(self._on_headers)
         self.stream.read_until("\r\n\r\n", self._on_headers)
 
     def write(self, chunk):
@@ -277,8 +278,7 @@ class HTTPConnection(object):
     def _on_headers(self, data):
         eol = data.find("\r\n")
         start_line = data[:eol]
-        method, rest = start_line.split(" ", 1)
-        uri, version = rest.rsplit(" ", 1)
+        method, uri, version = start_line.split(" ")
         if not version.startswith("HTTP/"):
             raise Exception("Malformed HTTP version in HTTP Request-Line")
         headers = httputil.HTTPHeaders.parse(data[eol:])
@@ -359,6 +359,14 @@ class HTTPConnection(object):
             else:
                 self._request.arguments.setdefault(name, []).append(value)
 
+    def _wrap_parse_error(self, callback):
+        def inner(*args, **kwargs):
+            try:
+                callback(*args, **kwargs)
+            except:
+                logging.warning("error parsing request", exc_info=True)
+                self.stream.close
+        return inner
 
 class HTTPRequest(object):
     """A single HTTP request.
