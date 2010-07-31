@@ -365,7 +365,7 @@ class HTTPConnection(object):
                 callback(*args, **kwargs)
             except:
                 logging.warning("error parsing request", exc_info=True)
-                self.stream.close
+                self.stream.close()
         return inner
 
 class HTTPRequest(object):
